@@ -45,7 +45,7 @@ void setup() {
   #ifdef DEBUG
    while (!Serial);
   #endif
-  LOGLN(("GO !"));
+  LOGLN((F("GO !")));
  
   os_init();    // Intialisation de la bibliothèque
   LMIC_reset();
@@ -75,7 +75,9 @@ bool extractNumber(const char * src, char *dst, int maxSz) {
     int idx = 0;
     for ( idx = 0 ; idx < maxSz-1 ; idx ++ ) {
        if ( src[idx] != ',' && src[idx] != ' ' && src[idx] != '\0' ) {
-         dst[idx] = src[idx];
+         if ( src[idx] >= '0' && src[idx] <= '9' ) { 
+          dst[idx] = src[idx];
+         } else return false;
        } else {
          break;
        }
@@ -120,9 +122,11 @@ void updateHalTime(uint32_t tics) {
   hal_compensate_ms += tics;
 }
 
+#define LINEBUFF_SZ 24
+#define NUMBUFF_SZ  10
 boolean canSleep = true;
 void loop() {
-  static char lbuf[24];
+  static char lbuf[LINEBUFF_SZ];
   static uint8_t ibuf = 0;
   static uint32_t lastBase = 0; 
   static uint32_t tempsMs = 0;
@@ -136,12 +140,12 @@ void loop() {
     delay(100);
     pitinfo.begin(1200);
     // try to flush read cache
-    for ( int i = 0 ; i < 50 ; i++ ) {
+    delay(100);
+    for ( int i = 0 ; i < 50 && pitinfo.available() > 0 ; i++ ) {
       pitinfo.read();
     }
-    delay(100);
       
-    while ( (millis()-start) < 3000 && (millis() >= start) && canSleep ) {
+    while ( (millis()-start) < 3000 && (millis() >= start) /*&& canSleep*/ ) {
       if ( pitinfo.available() > 0 ) {
         char c = pitinfo.read();
         c &= 0x7F;
@@ -149,8 +153,8 @@ void loop() {
         if ( c == '\r' || c == '\n' ) {
             // end of line
             if ( ibuf > 5 && startsWith(lbuf,"BASE ") ) {
-              char num[10];
-              if ( extractNumber(&lbuf[5], num, 16) ) {
+              char num[NUMBUFF_SZ];
+              if ( extractNumber(&lbuf[5], num, NUMBUFF_SZ) ) {
                 uint32_t base = atoi32(num);
                 if ( lastBase == 0 || base >= lastBase ) {
                   num[0] = (base >> 24) & 0xFF;
@@ -184,7 +188,7 @@ void loop() {
             }
             ibuf = 0;
         } else {
-           if ( c >= ' ' && c <= 'z' && ibuf < 32 ) {
+           if ( c >= ' ' && c <= 'z' && ibuf < LINEBUFF_SZ ) {
             lbuf[ibuf] = c;
             ibuf++;
            } else {
