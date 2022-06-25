@@ -70,21 +70,18 @@ void setup() {
   digitalWrite(3,LOW); 
 }
 
-// copy a float number into dst string
+// copy a int number into dst string
 bool extractNumber(const char * src, char *dst, int maxSz) {
     int idx = 0;
-    for ( idx = 0 ; idx < maxSz-1 ; idx ++ ) {
+    for ( idx = 0 ; idx < maxSz ; idx ++ ) {
        if ( src[idx] != ',' && src[idx] != ' ' && src[idx] != '\0' ) {
          if ( src[idx] >= '0' && src[idx] <= '9' ) { 
           dst[idx] = src[idx];
          } else return false;
        } else {
-         break;
+         dst[idx] = '\0';  
+         return true;
        }
-    }
-    if ( idx < maxSz-1 ) {
-       dst[idx] = '\0';  
-       return true;
     }
     return false;
 }
@@ -130,7 +127,7 @@ void loop() {
   static uint8_t ibuf = 0;
   static uint32_t lastBase = 0; 
   static uint32_t tempsMs = 0;
-  static uint16_t temps = TXPERIOD; 
+  static uint16_t temps = TXPERIOD-30; 
 
   uint32_t start = millis();
   if ( temps >= TXPERIOD ) {
