@@ -12,7 +12,7 @@ const lmic_pinmap lmic_pins = {
     .dio = {2, 5, LMIC_UNUSED_PIN},
 };
 
-#define TXPERIOD  (1*60) // 10 minutes
+#define TXPERIOD  (1*60) // 1 minutes
 #define MODE_LINKY  0   // for linky decoding
 #define MODE_OTHER  1   // for other counter like landis
 
@@ -139,7 +139,7 @@ void loop() {
   static uint8_t ibuf = 0;
   static uint32_t lastBase = 0; 
   static uint32_t tempsMs = 0;
-  static uint16_t temps = TXPERIOD-30; 
+  static uint16_t temps = TXPERIOD-10; 
 
 /* debug logs
   Serial.println("1");
@@ -257,7 +257,7 @@ void loop() {
     temps += 8;
     updateHalTime(8000);
   }
-  LOG((hal_ticks()));
+  LOG(("tics : "));LOGLN((hal_ticks()));
 }
 
 void onEvent (ev_t ev) {
