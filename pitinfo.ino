@@ -12,9 +12,9 @@ const lmic_pinmap lmic_pins = {
     .dio = {2, 5, LMIC_UNUSED_PIN},
 };
 
-#define TXPERIOD  (10*60) // 10 minutes
-#define MODE_LINKY  1   // for linky decoding
-#define MODE_OTHER  0   // for other counter like landis
+#define TXPERIOD  (1*60) // 10 minutes
+#define MODE_LINKY  0   // for linky decoding
+#define MODE_OTHER  1   // for other counter like landis
 
 
 void os_getArtEui (u1_t* buf) { 
@@ -141,6 +141,20 @@ void loop() {
   static uint32_t tempsMs = 0;
   static uint16_t temps = TXPERIOD-30; 
 
+/* debug logs
+  Serial.println("1");
+  pitinfo.begin(1200);
+  pinMode(3,OUTPUT);
+  digitalWrite(3,HIGH);
+  while ( true ) {
+    if (pitinfo.available() > 0) {
+      char c = pitinfo.read();
+        c &= 0x7F;
+        Serial.print(c);
+    }
+  }
+*/
+
   uint32_t start = millis();
   if ( temps >= TXPERIOD ) {
     temps = 0;
@@ -243,6 +257,7 @@ void loop() {
     temps += 8;
     updateHalTime(8000);
   }
+  LOG((hal_ticks()));
 }
 
 void onEvent (ev_t ev) {
