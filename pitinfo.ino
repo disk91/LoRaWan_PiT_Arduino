@@ -13,6 +13,8 @@ const lmic_pinmap lmic_pins = {
 };
 
 #define TXPERIOD  (10*60) // 10 minutes
+#define MODE_LINKY  1   // for linky decoding
+#define MODE_OTHER  0   // for other counter like landis
 
 
 void os_getArtEui (u1_t* buf) { 
@@ -63,7 +65,7 @@ void setup() {
   LMIC_setupChannel(8, 868800000, DR_RANGE_MAP(DR_FSK,  DR_FSK),  BAND_MILLI);    
   // Configure la vitesse et la puissance de transmission   
   LMIC.dn2Dr = SF9; 
-  LMIC_setDrTxpow(DR_SF9,14); 
+  LMIC_setDrTxpow(DR_SF9,8); 
   LMIC_setLinkCheckMode(0); 
 
   pinMode(3, OUTPUT);
@@ -74,10 +76,14 @@ void setup() {
 bool extractNumber(const char * src, char *dst, int maxSz) {
     int idx = 0;
     for ( idx = 0 ; idx < maxSz ; idx ++ ) {
+      #if MODE_LINKY == 1
        if ( src[idx] != ',' && src[idx] != ' ' && src[idx] != '\0' ) {
+      #endif
          if ( src[idx] >= '0' && src[idx] <= '9' ) { 
           dst[idx] = src[idx];
+      #if MODE_LINKY == 1
          } else return false;
+      #endif
        } else {
          dst[idx] = '\0';  
          return true;
@@ -113,10 +119,16 @@ uint32_t atoi32(char * num) {
   return v;
 }
 
+// Add in hal.cpp
+// uint64_t hal_compensate_tics = 0;
+// u4_t hal_ticks () {
+// ...
+//    return (scaled | ((uint32_t)overflow << 24)) + (hal_compensate_tics);
 
-extern uint32_t hal_compensate_ms;
-void updateHalTime(uint32_t tics) {
-  hal_compensate_ms += tics;
+extern uint64_t hal_compensate_tics;
+void updateHalTime(uint64_t ms) {
+  // We have 62.5 tics per ms -- 1 tics = 16uS
+  hal_compensate_tics += (625*ms)/10;
 }
 
 #define LINEBUFF_SZ 24
@@ -132,26 +144,38 @@ void loop() {
   uint32_t start = millis();
   if ( temps >= TXPERIOD ) {
     temps = 0;
+
+    // wake up the PIT interface
     pinMode(3,OUTPUT);
     digitalWrite(3,HIGH);
     delay(100);
     pitinfo.begin(1200);
     // try to flush read cache
+    // clean pending data, usually random values
     delay(100);
     for ( int i = 0 ; i < 50 && pitinfo.available() > 0 ; i++ ) {
       pitinfo.read();
     }
-      
-    while ( (millis()-start) < 3000 && (millis() >= start) /*&& canSleep*/ ) {
+   
+    // read the information on PIT during 3 seconds until we get the values
+    // we are looking at and we decided to wait for going to sleep. 
+    while ( (millis()-start) < 3000 && (millis() >= start) && canSleep ) {
       if ( pitinfo.available() > 0 ) {
         char c = pitinfo.read();
         c &= 0x7F;
         //Serial.print(c);
         if ( c == '\r' || c == '\n' ) {
             // end of line
+           #if MODE_LINKY == 1
             if ( ibuf > 5 && startsWith(lbuf,"BASE ") ) {
               char num[NUMBUFF_SZ];
               if ( extractNumber(&lbuf[5], num, NUMBUFF_SZ) ) {
+           #endif
+           #if MODE_OTHER == 1
+            if ( ibuf > 6 && startsWith(lbuf,"EAP_s ") ) {
+              char num[NUMBUFF_SZ];
+              if ( extractNumber(&lbuf[6], num, NUMBUFF_SZ) ) {
+           #endif
                 uint32_t base = atoi32(num);
                 if ( lastBase == 0 || base >= lastBase ) {
                   num[0] = (base >> 24) & 0xFF;
@@ -168,7 +192,7 @@ void loop() {
                   LOGLN((F("***")));
                   lbuf[0] = ' '; // make sure we reload new data to enter here (seen bug due to low memory)
                   lastBase = base;
-                  LMIC_setDrTxpow(DR_SF9,14); 
+                  LMIC_setDrTxpow(DR_SF10,8); 
                   canSleep = false;
                   lmic_tx_error_t err = LMIC_setTxData2(1, num, 7, 0);
                   if ( err != 0 ) {
@@ -201,12 +225,14 @@ void loop() {
   } else {
     delay(1);
   }
+  
   os_runloop_once();
 
+  // update the running time for next message schedule
   uint32_t stop = millis();
   if ( stop > start ) tempsMs += (stop - start);
   while ( tempsMs > 1000 ) {
-    temps++;
+    temps++;        // count seconds
     tempsMs -= 1000;
   }
   if ( canSleep ) {
@@ -215,7 +241,7 @@ void loop() {
     LOGINIT((9600));
     LOG(("."));
     temps += 8;
-    updateHalTime(65000);
+    updateHalTime(8000);
   }
 }
 
