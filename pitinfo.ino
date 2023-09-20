@@ -1,3 +1,9 @@
+/* ---
+ *  For LoRa Radio Node
+ *  Arduino Pro or Pro Mini 
+ *  328P 3.3V 8MHz
+ */
+
 #include <lmic.h>
 #include <hal/hal.h>
 #include <SoftwareSerial.h>
@@ -12,7 +18,7 @@ const lmic_pinmap lmic_pins = {
     .dio = {2, 5, LMIC_UNUSED_PIN},
 };
 
-#define TXPERIOD  (1*60) // 1 minutes
+#define TXPERIOD  (10*60) // 1 minutes
 #define MODE_LINKY  0   // for linky decoding
 #define MODE_OTHER  1   // for other counter like landis
 
@@ -131,6 +137,10 @@ void updateHalTime(uint64_t ms) {
   hal_compensate_tics += (625*ms)/10;
 }
 
+void soft_reset() {
+  asm volatile("jmp 0x00");
+}
+
 #define LINEBUFF_SZ 24
 #define NUMBUFF_SZ  10
 boolean canSleep = true;
@@ -139,7 +149,8 @@ void loop() {
   static uint8_t ibuf = 0;
   static uint32_t lastBase = 0; 
   static uint32_t tempsMs = 0;
-  static uint16_t temps = TXPERIOD-10; 
+  static uint16_t temps = TXPERIOD-10;
+  static uint16_t sleepWatchdog = 0;    // time pass with canSleep = false
 
 /* debug logs
   Serial.println("1");
@@ -248,16 +259,26 @@ void loop() {
   while ( tempsMs > 1000 ) {
     temps++;        // count seconds
     tempsMs -= 1000;
+
+    // manage LoRaWan watchdog
+    if ( ! canSleep ) {
+       sleepWatchdog++;
+    }
   }
   if ( canSleep ) {
+    sleepWatchdog = 0;
     LOGFLUSH(());
     LowPower.powerDown(SLEEP_8S, ADC_OFF,BOD_OFF);
     LOGINIT((9600));
     LOG(("."));
     temps += 8;
     updateHalTime(8000);
+  } else {
+    if ( sleepWatchdog > 120 ) {
+       soft_reset();
+    }
   }
-  LOG(("tics : "));LOGLN((hal_ticks()));
+  LOG(("tics / ms : "));LOG((hal_ticks()));LOGLN(((10*hal_ticks())/625));
 }
 
 void onEvent (ev_t ev) {
@@ -271,9 +292,21 @@ void onEvent (ev_t ev) {
         case EV_JOIN_FAILED:
         case EV_TXCOMPLETE: 
         case EV_TXCANCELED:
+        case EV_SCAN_TIMEOUT:
+        case EV_BEACON_FOUND:
+        case EV_BEACON_MISSED:
+        case EV_BEACON_TRACKED:
+        case EV_REJOIN_FAILED:
+        case EV_RFU1:
+        case EV_LOST_TSYNC:
+        case EV_RESET:
+        case EV_RXCOMPLETE:
+        case EV_LINK_DEAD:
             canSleep = true;
             break;
         case EV_TXSTART:
+        case EV_JOINING:
+        case EV_RXSTART:
             canSleep = false;
         default:
             break;
