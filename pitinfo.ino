@@ -4,6 +4,21 @@
  *  328P 3.3V 8MHz
  */
 
+/*
+ * configuration to be set in LMIC project config
+ * 
+    #define LMIC_LORAWAN_SPEC_VERSION   LMIC_LORAWAN_SPEC_VERSION_1_0_2
+    #define DISABLE_BEACONS
+    #define DISABLE_PING
+    #define DISABLE_LMIC_FAILURE_TO
+    #define DISABLE_MCMD_DutyCycleReq
+    #define DISABLE_MCMD_RXParamSetupReq
+    #define DISABLE_MCMD_NewChannelReq
+    #define DISABLE_MCMD_DlChannelReq
+    #define DISABLE_MCMD_RXTimingSetupReq
+    #define LMIC_MAX_FRAME_LENGTH 64
+ */
+
 #include <lmic.h>
 #include <hal/hal.h>
 #include <SoftwareSerial.h>
@@ -231,6 +246,7 @@ void loop() {
                 
               }
             }
+            ibuf = 0;
         } else {
            if ( c >= ' ' && c <= 'z' && ibuf < LINEBUFF_SZ ) {
             lbuf[ibuf] = c;
@@ -247,7 +263,7 @@ void loop() {
     pitinfo.end();
     digitalWrite(3,LOW);
   } else {
-    delay(1);
+    delay(2);
   }
   
   os_runloop_once();
