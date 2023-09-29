@@ -80,8 +80,7 @@ void setup() {
 
 // copy a int number into dst string
 bool extractNumber(const char * src, char *dst, int maxSz) {
-    int idx = 0;
-    for ( idx = 0 ; idx < maxSz ; idx ++ ) {
+    for ( int idx = 0 ; idx < maxSz ; idx ++ ) {
       #if MODE_LINKY == 1
        if ( src[idx] != ',' && src[idx] != ' ' && src[idx] != '\0' ) {
       #endif
@@ -232,7 +231,6 @@ void loop() {
                 
               }
             }
-            ibuf = 0;
         } else {
            if ( c >= ' ' && c <= 'z' && ibuf < LINEBUFF_SZ ) {
             lbuf[ibuf] = c;
@@ -245,6 +243,7 @@ void loop() {
         }
       }
     }
+    ibuf = 0;
     pitinfo.end();
     digitalWrite(3,LOW);
   } else {
