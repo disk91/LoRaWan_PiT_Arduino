@@ -260,6 +260,10 @@ void loop() {
         }
       }
     }
+    if ( (millis()-start) >= 3000 || (millis() < start) ) {
+      // timeout, let's try a reset too see
+      soft_reset();
+    }
     ibuf = 0;
     pitinfo.end();
     digitalWrite(3,LOW);
