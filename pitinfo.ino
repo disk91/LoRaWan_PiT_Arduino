@@ -242,6 +242,8 @@ void loop() {
                   break;
                 } else {
                   LOG((F("Erreur lecture")));
+                  // give a try to base change
+                  lastBase = base;
                 }
                 
               }
