@@ -248,9 +248,10 @@ void loop() {
             }
             ibuf = 0;
         } else {
-           if ( c >= ' ' && c <= 'z' && ibuf < LINEBUFF_SZ ) {
+           if ( c >= ' ' && c <= 'z' && ibuf < LINEBUFF_SZ-1 ) {
             lbuf[ibuf] = c;
             ibuf++;
+            lbuf[ibuf] = '\0';  // make sure we terminate line
            } else {
             // on a 3 et 2 en debut de bloc de transmission
             //Serial.print("**");
