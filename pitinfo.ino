@@ -221,11 +221,11 @@ void loop() {
     // read the information on PIT during 3 seconds until we get the values
     // we are looking at and we decided to wait for going to sleep. 
     uint8_t _status=0;
+    cTotal = 0; // reset total
     frame[7] = 0; // reset pricing
     while ( (millis()-start) < 3000 && (millis() >= start) && canSleep ) {    
       char num[NUMBUFF_SZ];
       uint32_t ivalue;
-      cTotal = 0;
       if ( pitinfo.available() > 0 ) {
         char c = pitinfo.read();
         c &= 0x7F;
