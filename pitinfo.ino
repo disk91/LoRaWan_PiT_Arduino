@@ -34,8 +34,8 @@ const lmic_pinmap lmic_pins = {
 };
 
 #define TXPERIOD  (10*60) // 1 minutes
-#define MODE_LINKY  0   // for linky decoding
-#define MODE_OTHER  1   // for other counter like landis
+#define MODE_LINKY  1   // for linky decoding
+#define MODE_OTHER  0   // for other counter like landis
 
 
 void os_getArtEui (u1_t* buf) { 
@@ -51,7 +51,7 @@ SoftwareSerial pitinfo(4,6);
 
 //#define DEBUG
 #ifdef DEBUG
-  #define LOGLN(x)  Serial.println x
+  #define LOGLN(x) Serial.println x
   #define LOG(x) Serial.print x
   #define LOGINIT(x) Serial.begin x
   #define LOGFLUSH(x) Serial.flush x
@@ -61,6 +61,27 @@ SoftwareSerial pitinfo(4,6);
   #define LOGINIT(x)
   #define LOGFLUSH(x) 
 #endif
+
+uint8_t frame[28]; // Frame format  
+                   // 00..03 Base or BlueDay Night hours
+                   // 04..06 Total delta with previous transmission
+                   // 07 - B7..6 01 - next day is blue
+                   //            10 - next day is white
+                   //            11 - next day is red
+                   //            00 - unknown
+                   //      B5..4 01 - today is blue
+                   //            10 - today is white
+                   //            11 - today is red
+                   //            00 - unknown
+                   //      B3..2 01 - currently Night hour
+                   //            10 - currenlty Day hour   
+                   //            00 - unknown, not interesting 
+                   // 08..11 BlueDay Day hours
+                   // 12..15 WhiteDay Night hours
+                   // 16..19 WhiteDay Day hours
+                   // 20..23 RedDay Night hours
+                   // 24..27 RedDay Day hours
+
 
 void setup() {
   // put your setup code here, to run once:
@@ -161,7 +182,8 @@ boolean canSleep = true;
 void loop() {
   static char lbuf[LINEBUFF_SZ];
   static uint8_t ibuf = 0;
-  static uint32_t lastBase = 0; 
+  static uint32_t lastTotal = 0; 
+  static uint32_t cTotal;
   static uint32_t tempsMs = 0;
   static uint16_t temps = TXPERIOD-10;
   static uint16_t sleepWatchdog = 0;    // time pass with canSleep = false
@@ -198,7 +220,12 @@ void loop() {
    
     // read the information on PIT during 3 seconds until we get the values
     // we are looking at and we decided to wait for going to sleep. 
-    while ( (millis()-start) < 3000 && (millis() >= start) && canSleep ) {
+    uint8_t _status=0;
+    frame[7] = 0; // reset pricing
+    while ( (millis()-start) < 3000 && (millis() >= start) && canSleep ) {    
+      char num[NUMBUFF_SZ];
+      uint32_t ivalue;
+      cTotal = 0;
       if ( pitinfo.available() > 0 ) {
         char c = pitinfo.read();
         c &= 0x7F;
@@ -207,48 +234,144 @@ void loop() {
             // end of line
            #if MODE_LINKY == 1
             if ( ibuf > 5 && startsWith(lbuf,"BASE ") ) {
-              char num[NUMBUFF_SZ];
               if ( extractNumber(&lbuf[5], num, NUMBUFF_SZ) ) {
            #endif
            #if MODE_OTHER == 1
             if ( ibuf > 6 && startsWith(lbuf,"EAP_s ") ) {
-              char num[NUMBUFF_SZ];
               if ( extractNumber(&lbuf[6], num, NUMBUFF_SZ) ) {
            #endif
-                uint32_t base = atoi32(num);
-                if ( lastBase == 0 || base >= lastBase ) {
-                  num[0] = (base >> 24) & 0xFF;
-                  num[1] = (base >> 16) & 0xFF;
-                  num[2] = (base >>  8) & 0xFF;
-                  num[3] = (base      ) & 0xFF;
-                  lastBase = (lastBase==0)?0:( base - lastBase ); // save 1 variable
-                  num[4] = (lastBase >> 16) & 0xFF;
-                  num[5] = (lastBase >>  8) & 0xFF;
-                  num[6] = (lastBase      ) & 0xFF;
-                  // Process
-                  LOG((F("***")));
-                  LOG((base));
-                  LOGLN((F("***")));
-                  lbuf[0] = ' '; // make sure we reload new data to enter here (seen bug due to low memory)
-                  lastBase = base;
-                  LMIC_setDrTxpow(DR_SF10,8); 
-                  canSleep = false;
-                  lmic_tx_error_t err = LMIC_setTxData2(1, num, 7, 0);
-                  if ( err != 0 ) {
-                    canSleep=true;
-                    LOG((F("Tx Err")));
-                    LOGLN((err));
-                  }
-                  break;
+                ivalue = atoi32(num);
+                frame[0] = (ivalue >> 24) & 0xFF;
+                frame[1] = (ivalue >> 16) & 0xFF;
+                frame[2] = (ivalue >>  8) & 0xFF;
+                frame[3] = (ivalue      ) & 0xFF;
+                cTotal+= ivalue;
+                _status = 0xFF;   // nothing more in this mode
+                LOG((F("Base")));LOGLN((ivalue));
+              }
+            }
+          #if MODE_LINKY == 1
+           if ( ibuf > 8 && startsWith(lbuf,"BBRHCJB ") ) {  
+             // Nigh Blue Day
+             if ( extractNumber(&lbuf[8], num, NUMBUFF_SZ) ) {
+               ivalue = atoi32(num);
+               frame[0] = (ivalue >> 24) & 0xFF;
+               frame[1] = (ivalue >> 16) & 0xFF;
+               frame[2] = (ivalue >>  8) & 0xFF;
+               frame[3] = (ivalue      ) & 0xFF;
+               LOG((F("HC JB")));LOGLN((ivalue));
+               cTotal+= ivalue;
+               _status |= 0x80;
+             }
+           }
+           if ( ibuf > 8 && startsWith(lbuf,"BBRHPJB ") ) {  
+             // Day Blue Day
+             if ( extractNumber(&lbuf[8], num, NUMBUFF_SZ) ) {
+               ivalue = atoi32(num);
+               frame[8] = (ivalue >> 24) & 0xFF;
+               frame[9] = (ivalue >> 16) & 0xFF;
+               frame[10] = (ivalue >>  8) & 0xFF;
+               frame[11] = (ivalue      ) & 0xFF;
+               LOG((F("HP JB")));LOGLN((ivalue));
+               cTotal+= ivalue;
+               _status |= 0x40;
+             }
+           }
+           if ( ibuf > 8 && startsWith(lbuf,"BBRHCJW ") ) {  
+             // Night White Day
+             if ( extractNumber(&lbuf[8], num, NUMBUFF_SZ) ) {
+               ivalue = atoi32(num);
+               frame[12] = (ivalue >> 24) & 0xFF;
+               frame[13] = (ivalue >> 16) & 0xFF;
+               frame[14] = (ivalue >>  8) & 0xFF;
+               frame[15] = (ivalue      ) & 0xFF;
+               LOG((F("HC JW")));LOGLN((ivalue));
+               cTotal+= ivalue;
+               _status |= 0x20;
+             }
+           }
+           if ( ibuf > 8 && startsWith(lbuf,"BBRHPJW ") ) {  
+             // Day White Day
+             if ( extractNumber(&lbuf[8], num, NUMBUFF_SZ) ) {
+               ivalue = atoi32(num);
+               frame[16] = (ivalue >> 24) & 0xFF;
+               frame[17] = (ivalue >> 16) & 0xFF;
+               frame[18] = (ivalue >>  8) & 0xFF;
+               frame[19] = (ivalue      ) & 0xFF;
+               LOG((F("HP JW")));LOGLN((ivalue));
+               cTotal+= ivalue;
+               _status |= 0x10;
+             }
+           }
+           if ( ibuf > 8 && startsWith(lbuf,"BBRHCJR ") ) {  
+             // Nigh Red Day
+             if ( extractNumber(&lbuf[8], num, NUMBUFF_SZ) ) {
+               ivalue = atoi32(num);
+               frame[20] = (ivalue >> 24) & 0xFF;
+               frame[21] = (ivalue >> 16) & 0xFF;
+               frame[22] = (ivalue >>  8) & 0xFF;
+               frame[23] = (ivalue      ) & 0xFF;
+               LOG((F("HC JR")));LOGLN((ivalue));
+               cTotal+= ivalue;
+               _status |= 0x08;
+             }
+           }
+           if ( ibuf > 8 && startsWith(lbuf,"BBRHPJR ") ) {  
+             // Day Red Day
+             if ( extractNumber(&lbuf[8], num, NUMBUFF_SZ) ) {
+               ivalue = atoi32(num);
+               frame[24] = (ivalue >> 24) & 0xFF;
+               frame[25] = (ivalue >> 16) & 0xFF;
+               frame[26] = (ivalue >>  8) & 0xFF;
+               frame[27] = (ivalue      ) & 0xFF;
+               LOG((F("HP JR")));LOGLN((ivalue));
+               cTotal+= ivalue;
+               _status |= 0x04;
+             }
+           }
+
+           // current price
+           if ( ibuf > 9 && startsWith(lbuf,"PTEC HPJW") ) frame[7] |=  0x28; // 00 10 10 00
+           else if ( ibuf > 9 && startsWith(lbuf,"PTEC HCJW") ) frame[7] |=  0x24; // 00 10 01 00
+           else if ( ibuf > 9 && startsWith(lbuf,"PTEC HPJB") ) frame[7] |=  0x18; // 00 01 10 00
+           else if ( ibuf > 9 && startsWith(lbuf,"PTEC HCJB") ) frame[7] |=  0x14; // 00 01 01 00
+           else if ( ibuf > 9 && startsWith(lbuf,"PTEC HPJR") ) frame[7] |=  0x38; // 00 11 10 00
+           else if ( ibuf > 9 && startsWith(lbuf,"PTEC HCJR") ) frame[7] |=  0x34; // 00 11 01 00
+           if ( ibuf > 9 && startsWith(lbuf,"PTEC" ) ) _status |= 0x02;
+
+           // next day
+           if ( ibuf > 9 && startsWith(lbuf,"DEMAIN R") ) frame[7] |=  0xC0; // 11 00 00 00
+           else if ( ibuf > 10 && startsWith(lbuf,"DEMAIN BLE") ) frame[7] |=  0x40; // 01 00 00 00
+           else if ( ibuf > 10 && startsWith(lbuf,"DEMAIN BLA") ) frame[7] |=  0x80; // 10 00 00 00
+           if ( ibuf > 9 && startsWith(lbuf,"DEMAIN" ) ) _status |= 0x01;
+          #endif
+           lbuf[0] = ' '; // make sure we reload new data to enter here (seen bug due to low memory)
+           ibuf = 0;
+
+           if ( _status == 0xFF ) {
+               // calculate delta
+               if ( lastTotal == 0 || cTotal >= lastTotal ) {
+                  lastTotal = (lastTotal==0)?0:( cTotal - lastTotal );
+                  frame[4] = (lastTotal >> 16) & 0xFF;
+                  frame[5] = (lastTotal >>  8) & 0xFF;
+                  frame[6] = (lastTotal      ) & 0xFF;
                 } else {
                   LOG((F("Erreur lecture")));
                   // give a try to base change
-                  lastBase = base;
-                }
-                
-              }
+                  lastTotal = cTotal;
+                } 
+               // Process transmission              
+               lastTotal = cTotal;
+               LMIC_setDrTxpow(DR_SF10,8); 
+               canSleep = false;
+               lmic_tx_error_t err = LMIC_setTxData2(1, frame, sizeof(frame), 0);
+               if ( err != 0 ) {
+                 canSleep=true;
+                 LOG((F("Tx Err")));
+                 LOGLN((err));
+               }
+               break;
             }
-            ibuf = 0;
         } else {
            if ( c >= ' ' && c <= 'z' && ibuf < LINEBUFF_SZ-1 ) {
             lbuf[ibuf] = c;
@@ -266,9 +389,10 @@ void loop() {
       // timeout, let's try a reset too see
       soft_reset();
     }
-    ibuf = 0;
     pitinfo.end();
     digitalWrite(3,LOW);
+    ibuf = 0;
+    lbuf[0] = ' ';
   } else {
     delay(2);
   }
@@ -300,7 +424,7 @@ void loop() {
        soft_reset();
     }
   }
-  LOG(("tics / ms : "));LOG((hal_ticks()));LOGLN(((10*hal_ticks())/625));
+  //LOG(("tics / ms : "));LOG((hal_ticks()));LOGLN(((10*hal_ticks())/625));
 }
 
 void onEvent (ev_t ev) {
